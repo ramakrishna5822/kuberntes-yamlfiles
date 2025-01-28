@@ -1,0 +1,7 @@
+kubectl create -f replicationcontroller.yaml--->create replicationcontroller
+kubectl apply -f replicationcontroller.yaml ---> update replicationcontroller yaml file
+kubectl get all ---> will display all pods,cluster and service information
+kubectl get svc ---> will display service information
+kubectl delete all --all --> it will remove pods,clusters and services
+kubectl get pods - o wide ---> will display pods ip
+kubectl get all -o wide --> will disply pods and cluster ip information
