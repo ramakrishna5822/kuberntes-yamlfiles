@@ -5,3 +5,14 @@ kubectl get svc ---> will display service information
 kubectl delete all --all --> it will remove pods,clusters and services
 kubectl get pods - o wide ---> will display pods ip
 kubectl get all -o wide --> will disply pods and cluster ip information
+how to acces the cluster --> by using clusterip  like curl http://clusterip
+kubectl get pods --display all pods information
+kubectl get logs --> will display logs information --> kubectl get logs podname --
+kubectl exec -it podname -- /bin/bash  --> login to perticular pod
+kubectl get rc  --> dispaly replication controller pods
+kubectl get svc -o wide
+kubectl get pods --show-labels
+kubectl scale rc pod name --repicas 3
+kubectl describe svc servicename -->chcek end points
+kubectl get pods --show-lables
+ 

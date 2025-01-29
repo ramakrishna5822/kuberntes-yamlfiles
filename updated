@@ -1,0 +1,116 @@
+import groovy.json.JsonOutput
+@Library('jenkins-pipeline-shared')_
+properties([
+    parameters([
+        choice(name: 'Environment', choices: ['qa', 'dev', 'prod'], description: 'Select the Cluster Environment'),
+        choice(name: 'ProductName', choices: ['cloudops', 'central'], description: 'Select the Product Name'),
+        choice(name: 'PipelineName', choices: [
+            'cloudops/DeployPromVaultExporter-proserve-graviton',
+            'humio/loggingCluster-Upgrade-Okta-proserve-graviton',
+            'cloudops/ConsulBootstrap-proserve-graviton',
+            'cloudops/VaultBootstrap-proserve-graviton',
+            'cloudops/DeployCustomPromExporter-proserve-graviton'
+        ], description: 'Select the pipeline to trigger')
+    ])
+])
+
+env.CLUSTERENV = params.Environment
+def product_name = params.ProductName
+def pipeline_name = params.PipelineName
+
+node('jenkins-worker-node') {
+    stage('Clean Workspace') {
+        cleanWs()
+    }
+      stage('User Input') {
+        if (params.Environment != null) {
+            env.CLUSTERENV = params.Environment
+        }
+    }
+
+
+    stage('Retrieve Cluster and Provider Details') {
+        ansiColor('xterm') {
+            timestamps {
+                // Retrieve cluster name and other details
+                def cluster_name = v2_helper.get_cluster_scriptedly(env.CLUSTERENV)
+                def api_url = env.CLUSTERURL
+                def api_gw_key = env.CLUSTERKEY
+                echo "Cluster Name is - ${cluster_name}"
+
+                // Build Display Name
+                currentBuild.displayName = "${cluster_name}-${product_name}:${BUILD_NUMBER}"
+
+                // Get Provider Details
+                def provider_data = v2_helper.get_provider_details(env.CLUSTERURL, env.CLUSTERKEY, cluster_name)
+            }
+        }
+    }
+
+    stage('Trigger Pipelines') {
+        def payloadConfigs = [
+            'cloudops/DeployPromVaultExporter-proserve-graviton': [
+                cluster: cluster_name,
+                'config.env': params.Environment,
+                'config.product': "cloudops",
+                taintValue: "cloudops-amd64",
+                nodeLabelValue: "cloudops-amd64"
+            ],
+            'humio/loggingCluster-Upgrade-Okta-proserve-graviton': [
+                cluster: cluster_name,
+                env: params.Environment,
+                product: "central",
+                taintValue: "cloudops-amd64",
+                imageTag: "master-v1.0.80",
+                humioCoreVersion: "1.118.4"
+            ],
+            'cloudops/ConsulBootstrap-proserve-graviton': [
+                cluster: cluster_name,
+                environment: params.Environment,
+                'config.product': "cloudops",
+                ImageTag: "megatron-1.0.8-test"
+            ],
+            'cloudops/VaultBootstrap-proserve-graviton': [
+                cluster: cluster_name,
+                environment: params.Environment,
+                product: "cloudops",
+                ImageTag: "megatron-1.20.1-test-vault-bootstrap-arm64"
+            ],
+            'cloudops/DeployCustomPromExporter-proserve-graviton': [
+                cluster: cluster_name,
+                env: params.Environment,
+                imageTag: "megatron-1.0.6-arm64"
+            ]
+        ]
+
+        payloadConfigs.each { pipelineName, parameters ->
+            if (pipelineName == params.PipelineName) { // Trigger only the selected pipeline
+                stage("Migrate ${pipelineName}") {
+                    def payload = JsonOutput.toJson([
+                        type      : "manual",
+                        dryRun    : false,
+                        parameters: parameters
+                    ])
+                    echo "Migrating ${pipelineName}"
+                    running_migration(env, cluster_name, pipelineName, payload)
+                }
+            }
+        }
+    }
+}
+
+def running_migration(env, cluster_name, pipelineName, payload) {
+    println "Spinnaker Pipeline name: ${pipelineName}"
+    def t = v2_spinnakerHelper.triggerPipeline(env.CLUSTERENV, cluster_name, pipelineName, payload)
+    if (t.status == '202') {
+        println "Pipeline execution request accepted by Spinnaker. Pipeline ID: ${t.pipeline_id}"
+    } else {
+        error "Failed to trigger Spinnaker pipeline: ${pipelineName}. Status: ${t.status}"
+    }
+    try {
+        v2_spinnakerHelper.poll_spinnaker_pipeline("Spinnaker pipeline", env, cluster_name, t)
+    } catch (Exception e) {
+        echo "Error: ${e.message}"
+        echo "Something failed while running ${pipelineName}."
+    }
+}
